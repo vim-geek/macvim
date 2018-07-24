@@ -714,8 +714,8 @@ readfile(
 			&& st.st_gid != swap_st.st_gid
 # ifdef HAVE_FCHOWN
 			&& fchown(curbuf->b_ml.ml_mfp->mf_fd, -1, st.st_gid)
-# endif
 									  == -1
+# endif
 		   )
 		    swap_mode &= 0600;
 	    }
@@ -6937,11 +6937,13 @@ buf_check_timestamp(
     {
 	retval = 1;
 
-	/* set b_mtime to stop further warnings (e.g., when executing
-	 * FileChangedShell autocmd) */
+	// set b_mtime to stop further warnings (e.g., when executing
+	// FileChangedShell autocmd)
 	if (stat_res < 0)
 	{
-	    buf->b_mtime = 0;
+	    // When 'autoread' is set we'll check the file again to see if it
+	    // re-appears.
+	    buf->b_mtime = buf->b_p_ar;
 	    buf->b_orig_size = 0;
 	    buf->b_orig_mode = 0;
 	}
@@ -8450,19 +8452,19 @@ au_event_restore(char_u *old_ei)
  *				    will be automatically executed for <event>
  *				    when editing a file matching <pat>, in
  *				    the current group.
- * :autocmd <event> <pat>	    Show the auto-commands associated with
+ * :autocmd <event> <pat>	    Show the autocommands associated with
  *				    <event> and <pat>.
- * :autocmd <event>		    Show the auto-commands associated with
+ * :autocmd <event>		    Show the autocommands associated with
  *				    <event>.
- * :autocmd			    Show all auto-commands.
- * :autocmd! <event> <pat> <cmd>    Remove all auto-commands associated with
+ * :autocmd			    Show all autocommands.
+ * :autocmd! <event> <pat> <cmd>    Remove all autocommands associated with
  *				    <event> and <pat>, and add the command
  *				    <cmd>, for the current group.
- * :autocmd! <event> <pat>	    Remove all auto-commands associated with
+ * :autocmd! <event> <pat>	    Remove all autocommands associated with
  *				    <event> and <pat> for the current group.
- * :autocmd! <event>		    Remove all auto-commands associated with
+ * :autocmd! <event>		    Remove all autocommands associated with
  *				    <event> for the current group.
- * :autocmd!			    Remove ALL auto-commands for the current
+ * :autocmd!			    Remove ALL autocommands for the current
  *				    group.
  *
  *  Multiple events and patterns may be given separated by commas.  Here are
@@ -8572,7 +8574,7 @@ do_autocmd(char_u *arg_in, int forceit)
     if (!forceit && *cmd == NUL)
     {
 	/* Highlight title */
-	MSG_PUTS_TITLE(_("\n--- Auto-Commands ---"));
+	MSG_PUTS_TITLE(_("\n--- Autocommands ---"));
     }
 
     /*
@@ -9312,7 +9314,7 @@ trigger_cursorhold(void)
 
     if (!did_cursorhold
 	    && has_cursorhold()
-	    && !Recording
+	    && reg_recording == 0
 	    && typebuf.tb_len == 0
 #ifdef FEAT_INS_EXPAND
 	    && !ins_compl_active()
@@ -9640,7 +9642,7 @@ apply_autocmds_group(
     autocmd_match = fname;
 
 
-    /* Don't redraw while doing auto commands. */
+    /* Don't redraw while doing autocommands. */
     ++RedrawingDisabled;
     save_sourcing_name = sourcing_name;
     sourcing_name = NULL;	/* don't free this one */
@@ -9893,7 +9895,7 @@ auto_next_pat(
 		    : ap->buflocal_nr == apc->arg_bufnr)
 	    {
 		name = event_nr2name(apc->event);
-		s = _("%s Auto commands for \"%s\"");
+		s = _("%s Autocommands for \"%s\"");
 		sourcing_name = alloc((unsigned)(STRLEN(s)
 					    + STRLEN(name) + ap->patlen + 1));
 		if (sourcing_name != NULL)

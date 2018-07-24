@@ -703,24 +703,14 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
                                          forMode:NSDefaultRunLoopMode];
         }
 
-        CFAbsoluteTime lastTime =
-            milliseconds >= 0 ? CFAbsoluteTimeGetCurrent() : .0;
-
         while (CFRunLoopRunInMode(kCFRunLoopDefaultMode, dt, true)
                 == kCFRunLoopRunHandledSource) {
-            // In order to ensure that all input (except for channel) on the
-            // run-loop has been processed we set the timeout to 0 and keep
-            // processing until the run-loop times out.
-            if ([inputQueue count] > 0 || input_available() || got_int) {
-                dt = 0.0;
+            // In order to ensure that all input on the run-loop has been
+            // processed we set the timeout to 0 and keep processing until the
+            // run-loop times out.
+            dt = 0.0;
+            if ([inputQueue count] > 0 || input_available() || got_int)
                 inputReceived = YES;
-            } else if (milliseconds >= 0) {
-                CFAbsoluteTime nowTime = CFAbsoluteTimeGetCurrent();
-
-                if ((dt -= nowTime - lastTime) <= 0.0)
-                    break;
-                lastTime = nowTime;
-            }
         }
 
         if ([inputQueue count] > 0 || input_available() || got_int)
@@ -844,6 +834,11 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     NSData *data = [NSData dataWithBytes:&dim length:2*sizeof(int)];
 
     [self queueMessage:SetTextDimensionsMsgID data:data];
+}
+
+- (void)resizeView
+{
+    [self queueMessage:ResizeViewMsgID data:nil];
 }
 
 - (void)setWindowTitle:(char *)title
@@ -2007,6 +2002,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
         tabpage_move(idx);
     } else if (SetTextDimensionsMsgID == msgid || LiveResizeMsgID == msgid
+            || SetTextDimensionsNoResizeWindowMsgID == msgid
             || SetTextRowsMsgID == msgid || SetTextColumnsMsgID == msgid) {
         if (!data) return;
         const void *bytes = [data bytes];
@@ -2038,6 +2034,8 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         [self queueMessage:msgid data:d];
 
         gui_resize_shell(cols, rows);
+    } else if (ResizeViewMsgID == msgid) {
+        [self queueMessage:msgid data:data];
     } else if (ExecuteMenuMsgID == msgid) {
         NSDictionary *attrs = [NSDictionary dictionaryWithData:data];
         if (attrs) {

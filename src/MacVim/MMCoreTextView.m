@@ -294,11 +294,7 @@ defaultAdvanceForFont(NSFont *font)
     double em = round(defaultAdvanceForFont(newFont));
     double pt = round([newFont pointSize]);
 
-    NSDictionary *attr = [NSDictionary dictionaryWithObjectsAndKeys:
-        [newFont displayName], (NSString*)kCTFontNameAttribute,
-        [NSNumber numberWithFloat:pt], (NSString*)kCTFontSizeAttribute, nil];
-    CTFontDescriptorRef desc = CTFontDescriptorCreateWithAttributes(
-            (CFDictionaryRef)attr);
+    CTFontDescriptorRef desc = CTFontDescriptorCreateWithNameAndSize((CFStringRef)[newFont fontName], pt);
     CTFontRef fontRef = CTFontCreateWithFontDescriptor(desc, pt, NULL);
     CFRelease(desc);
 
@@ -787,7 +783,7 @@ defaultAdvanceForFont(NSFont *font)
     NSFont *newFont = [sender convertFont:font];
 
     if (newFont) {
-        NSString *name = [newFont displayName];
+        NSString *name = [newFont fontName];
         unsigned len = [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
         if (len > 0) {
             NSMutableData *data = [NSMutableData data];
@@ -1203,21 +1199,23 @@ fetchGlyphsAndAdvances(const CTLineRef line, CGGlyph *glyphs, CGSize *advances,
         CTRunRef run  = (CTRunRef)item;
         CFIndex count = CTRunGetGlyphCount(run);
 
-        if (count > 0 && count - offset > length)
-            count = length - offset;
+        if (count > 0) {
+            if (count > length - offset)
+                count = length - offset;
 
-        CFRange range = CFRangeMake(0, count);
+            CFRange range = CFRangeMake(0, count);
 
-        if (glyphs != NULL)
-            CTRunGetGlyphs(run, range, &glyphs[offset]);
-        if (advances != NULL)
-            CTRunGetAdvances(run, range, &advances[offset]);
-        if (positions != NULL)
-            CTRunGetPositions(run, range, &positions[offset]);
+            if (glyphs != NULL)
+                CTRunGetGlyphs(run, range, &glyphs[offset]);
+            if (advances != NULL)
+                CTRunGetAdvances(run, range, &advances[offset]);
+            if (positions != NULL)
+                CTRunGetPositions(run, range, &positions[offset]);
 
-        offset += count;
-        if (offset >= length)
-            break;
+            offset += count;
+            if (offset >= length)
+                break;
+        }
     }
 
     return offset;
@@ -1273,8 +1271,10 @@ recurseDraw(const unichar *chars, CGGlyph *glyphs, CGPoint *positions,
 {
     if (CTFontGetGlyphsForCharacters(fontRef, chars, glyphs, length)) {
         // All chars were mapped to glyphs, so draw all at once and return.
-        length = composeGlyphsForChars(chars, glyphs, positions, length,
-                                       fontRef, isComposing, useLigatures);
+        length = isComposing || useLigatures
+                ? composeGlyphsForChars(chars, glyphs, positions, length,
+                                        fontRef, isComposing, useLigatures)
+                : gatherGlyphs(glyphs, length);
         CTFontDrawGlyphs(fontRef, glyphs, positions, length, context);
         return;
     }
@@ -1431,7 +1431,7 @@ recurseDraw(const unichar *chars, CGGlyph *glyphs, CGPoint *positions,
         }
 
         CGContextSetRGBStrokeColor(context, RED(sp), GREEN(sp), BLUE(sp),
-                                 ALPHA(sp));
+                                   ALPHA(sp));
         CGContextStrokePath(context);
     }
 
@@ -1449,13 +1449,10 @@ recurseDraw(const unichar *chars, CGGlyph *glyphs, CGPoint *positions,
     CGContextSetFontSize(context, [font pointSize]);
 
     // Calculate position of each glyph relative to (x,y).
-    if (!composing) {
-        float xrel = 0;
-        for (unsigned i = 0; i < length; ++i) {
-            positions[i].x = xrel;
-            positions[i].y = .0;
-            xrel += w;
-        }
+    float xrel = composing ? .0 : w;
+    for (unsigned i = 0; i < length; ++i) {
+        positions[i].x = i * xrel;
+        positions[i].y = .0;
     }
 
     CTFontRef fontRef = (CTFontRef)(wide ? [fontWide retain]

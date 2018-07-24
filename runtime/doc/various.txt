@@ -1,4 +1,4 @@
-*various.txt*   For Vim version 8.0.  Last change: 2018 Mar 29
+*various.txt*   For Vim version 8.1.  Last change: 2018 Mar 29
 
 
 		  VIM REFERENCE MANUAL    by Bram Moolenaar
@@ -456,6 +456,7 @@ N  *+title*		Setting the window 'title' and 'icon'
 N  *+toolbar*		|gui-toolbar|
 m  *+transparency*      MacVim only: window background transparency
 N  *+user_commands*	User-defined commands. |user-commands|
+B  *+vartabs*		Variable-width tabstops. |'vartabstop'|
 N  *+viminfo*		|'viminfo'|
    *+vertsplit*		Vertically split windows |:vsplit|; Always enabled
 			since 8.0.1118.

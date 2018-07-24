@@ -185,6 +185,10 @@
 # define PV_UDF		OPT_BUF(BV_UDF)
 #endif
 #define PV_WM		OPT_BUF(BV_WM)
+#ifdef FEAT_VARTABS
+# define PV_VSTS		OPT_BUF(BV_VSTS)
+# define PV_VTS		OPT_BUF(BV_VTS)
+#endif
 
 /*
  * Definition of the PV_ values for window-local options.
@@ -377,6 +381,10 @@ static int	p_tx;
 static int	p_udf;
 #endif
 static long	p_wm;
+#ifdef FEAT_VARTABS
+static char_u	*p_vsts;
+static char_u	*p_vts;
+#endif
 #ifdef FEAT_KEYMAP
 static char_u	*p_keymap;
 #endif
@@ -396,6 +404,9 @@ static int	p_et_nopaste;
 static long	p_sts_nopaste;
 static long	p_tw_nopaste;
 static long	p_wm_nopaste;
+#ifdef FEAT_VARTABS
+static char_u	*p_vsts_nopaste;
+#endif
 
 struct vimoption
 {
@@ -3008,6 +3019,24 @@ static struct vimoption options[] =
     {"updatetime",  "ut",   P_NUM|P_VI_DEF,
 			    (char_u *)&p_ut, PV_NONE,
 			    {(char_u *)4000L, (char_u *)0L} SCRIPTID_INIT},
+    {"varsofttabstop", "vsts",  P_STRING|P_VI_DEF|P_VIM|P_COMMA,
+#ifdef FEAT_VARTABS
+			    (char_u *)&p_vsts, PV_VSTS,
+			    {(char_u *)"", (char_u *)0L}
+#else
+			    (char_u *)NULL, PV_NONE,
+			    {(char_u *)"", (char_u *)NULL}
+#endif
+			    SCRIPTID_INIT},
+    {"vartabstop",  "vts",  P_STRING|P_VI_DEF|P_VIM|P_RBUF|P_COMMA,
+#ifdef FEAT_VARTABS
+			    (char_u *)&p_vts, PV_VTS,
+			    {(char_u *)"", (char_u *)0L}
+#else
+			    (char_u *)NULL, PV_NONE,
+			    {(char_u *)"", (char_u *)NULL}
+#endif
+			    SCRIPTID_INIT},
     {"verbose",	    "vbs",  P_NUM|P_VI_DEF,
 			    (char_u *)&p_verbose, PV_NONE,
 			    {(char_u *)0L, (char_u *)0L} SCRIPTID_INIT},
@@ -3051,7 +3080,8 @@ static struct vimoption options[] =
 			    {(char_u *)0L, (char_u *)0L}
 #endif
 			    SCRIPTID_INIT},
-    {"viminfofile", "vif",  P_STRING|P_ONECOMMA|P_NODUP|P_SECURE|P_VI_DEF,
+    {"viminfofile", "vif",  P_STRING|P_EXPAND|P_ONECOMMA|P_NODUP
+							    |P_SECURE|P_VI_DEF,
 #ifdef FEAT_VIMINFO
 			    (char_u *)&p_viminfofile, PV_NONE,
 			    {(char_u *)"", (char_u *)0L}
@@ -3312,7 +3342,7 @@ static char *(p_bsdir_values[]) = {"current", "last", "buffer", NULL};
 static char *(p_scbopt_values[]) = {"ver", "hor", "jump", NULL};
 static char *(p_debug_values[]) = {"msg", "throw", "beep", NULL};
 static char *(p_ead_values[]) = {"both", "ver", "hor", NULL};
-static char *(p_buftype_values[]) = {"nofile", "nowrite", "quickfix", "help", "terminal", "acwrite", NULL};
+static char *(p_buftype_values[]) = {"nofile", "nowrite", "quickfix", "help", "terminal", "acwrite", "prompt", NULL};
 static char *(p_bufhidden_values[]) = {"hide", "unload", "delete", "wipe", NULL};
 static char *(p_bs_values[]) = {"indent", "eol", "start", NULL};
 #ifdef FEAT_FOLDING
@@ -3338,9 +3368,6 @@ static void did_set_option(int opt_idx, int opt_flags, int new_value);
 static char_u *illegal_char(char_u *, int);
 #ifdef FEAT_CMDWIN
 static char_u *check_cedit(void);
-#endif
-#ifdef FEAT_TITLE
-static void did_set_title(int icon);
 #endif
 static char_u *option_expand(int opt_idx, char_u *val);
 static void didset_options(void);
@@ -3372,7 +3399,7 @@ static char_u *set_bool_option(int opt_idx, char_u *varp, int value, int opt_fla
 static char_u *set_num_option(int opt_idx, char_u *varp, long value, char_u *errbuf, size_t errbuflen, int opt_flags);
 static void check_redraw(long_u flags);
 static int findoption(char_u *);
-static int find_key_option(char_u *);
+static int find_key_option(char_u *arg_arg, int has_lt);
 static void showoptions(int all, int opt_flags);
 static int optval_default(struct vimoption *, char_u *varp);
 static void showoneopt(struct vimoption *, int opt_flags);
@@ -4569,7 +4596,7 @@ do_set(
 		    opt_idx = findoption(arg + 1);
 		arg[len++] = '>';		    /* restore '>' */
 		if (opt_idx == -1)
-		    key = find_key_option(arg + 1);
+		    key = find_key_option(arg + 1, TRUE);
 	    }
 	    else
 	    {
@@ -4587,7 +4614,7 @@ do_set(
 		opt_idx = findoption(arg);
 		arg[len] = nextchar;		    /* restore nextchar */
 		if (opt_idx == -1)
-		    key = find_key_option(arg);
+		    key = find_key_option(arg, FALSE);
 	    }
 
 	    /* remember character after option name */
@@ -5439,7 +5466,7 @@ illegal_char(char_u *errbuf, int c)
 string_to_key(char_u *arg, int multi_byte)
 {
     if (*arg == '<')
-	return find_key_option(arg + 1);
+	return find_key_option(arg + 1, TRUE);
     if (*arg == '^')
 	return Ctrl_chr(arg[1]);
     if (multi_byte)
@@ -5478,27 +5505,14 @@ check_cedit(void)
  * the old value back.
  */
     static void
-did_set_title(
-    int	    icon)	    /* Did set icon instead of title */
+did_set_title(void)
 {
     if (starting != NO_SCREEN
 #ifdef FEAT_GUI
 	    && !gui.starting
 #endif
 				)
-    {
 	maketitle();
-	if (icon)
-	{
-	    if (!p_icon)
-		mch_restore_title(2);
-	}
-	else
-	{
-	    if (!p_title)
-		mch_restore_title(1);
-	}
-    }
 }
 #endif
 
@@ -5732,6 +5746,10 @@ didset_options2(void)
     /* Parse default for 'clipboard' */
     (void)check_clipboard_option();
 #endif
+#ifdef FEAT_VARTABS
+    tabstop_set(curbuf->b_p_vsts, &curbuf->b_p_vsts_array);
+    tabstop_set(curbuf->b_p_vts,  &curbuf->b_p_vts_array);
+#endif
 }
 
 /*
@@ -5848,6 +5866,10 @@ check_buf_options(buf_T *buf)
     check_string_option(&buf->b_p_bkc);
 #ifdef FEAT_MBYTE
     check_string_option(&buf->b_p_menc);
+#endif
+#ifdef FEAT_VARTABS
+    check_string_option(&buf->b_p_vsts);
+    check_string_option(&buf->b_p_vts);
 #endif
 }
 
@@ -6153,7 +6175,7 @@ did_set_string_option(
     /* set when changing an option that only requires a redraw in the GUI */
     int		redraw_gui_only = FALSE;
 #endif
-    int		ft_changed = FALSE;
+    int		value_changed = FALSE;
 #if defined(FEAT_VTP) && defined(FEAT_TERMGUICOLORS)
     int		did_swaptcap = FALSE;
 #endif
@@ -7062,8 +7084,7 @@ did_set_string_option(
 	else
 	    stl_syntax &= ~flagval;
 # endif
-	did_set_title(varp == &p_iconstring);
-
+	did_set_title();
     }
 #endif
 
@@ -7577,7 +7598,7 @@ did_set_string_option(
 	if (!valid_filetype(*varp))
 	    errmsg = e_invarg;
 	else
-	    ft_changed = STRCMP(oldval, *varp) != 0;
+	    value_changed = STRCMP(oldval, *varp) != 0;
     }
 
 #ifdef FEAT_SYN_HL
@@ -7585,6 +7606,8 @@ did_set_string_option(
     {
 	if (!valid_filetype(*varp))
 	    errmsg = e_invarg;
+	else
+	    value_changed = STRCMP(oldval, *varp) != 0;
     }
 #endif
 
@@ -7606,6 +7629,88 @@ did_set_string_option(
 		    || (*p != 'x' && *p != '*')
 		    || *skipdigits(p + 1) != NUL)
 		errmsg = e_invarg;
+	}
+    }
+#endif
+
+#ifdef FEAT_VARTABS
+    /* 'varsofttabstop' */
+    else if (varp == &(curbuf->b_p_vsts))
+    {
+	char_u *cp;
+
+	if (!(*varp)[0] || ((*varp)[0] == '0' && !(*varp)[1]))
+	{
+	    if (curbuf->b_p_vsts_array)
+	    {
+		vim_free(curbuf->b_p_vsts_array);
+		curbuf->b_p_vsts_array = 0;
+	    }
+	}
+	else
+	{
+	    for (cp = *varp; *cp; ++cp)
+	    {
+		if (vim_isdigit(*cp))
+		    continue;
+		if (*cp == ',' && cp > *varp && *(cp-1) != ',')
+		    continue;
+		errmsg = e_invarg;
+		break;
+	    }
+	    if (errmsg == NULL)
+	    {
+		int *oldarray = curbuf->b_p_vsts_array;
+		if (tabstop_set(*varp, &(curbuf->b_p_vsts_array)))
+		{
+		    if (oldarray)
+			vim_free(oldarray);
+		}
+		else
+		    errmsg = e_invarg;
+	    }
+	}
+    }
+
+    /* 'vartabstop' */
+    else if (varp == &(curbuf->b_p_vts))
+    {
+	char_u *cp;
+
+	if (!(*varp)[0] || ((*varp)[0] == '0' && !(*varp)[1]))
+	{
+	    if (curbuf->b_p_vts_array)
+	    {
+		vim_free(curbuf->b_p_vts_array);
+		curbuf->b_p_vts_array = NULL;
+	    }
+	}
+	else
+	{
+	    for (cp = *varp; *cp; ++cp)
+	    {
+		if (vim_isdigit(*cp))
+		    continue;
+		if (*cp == ',' && cp > *varp && *(cp-1) != ',')
+		    continue;
+		errmsg = e_invarg;
+		break;
+	    }
+	    if (errmsg == NULL)
+	    {
+		int *oldarray = curbuf->b_p_vts_array;
+		if (tabstop_set(*varp, &(curbuf->b_p_vts_array)))
+		{
+		    if (oldarray)
+			vim_free(oldarray);
+#ifdef FEAT_FOLDING
+		    if (foldmethodIsIndent(curwin))
+			foldUpdateAll(curwin);
+#endif /* FEAT_FOLDING */
+		}
+		else
+		    errmsg = e_invarg;
+	    }
 	}
     }
 #endif
@@ -7705,8 +7810,14 @@ did_set_string_option(
 	/* When 'syntax' is set, load the syntax of that name */
 	if (varp == &(curbuf->b_p_syn))
 	{
-	    apply_autocmds(EVENT_SYNTAX, curbuf->b_p_syn,
-					       curbuf->b_fname, TRUE, curbuf);
+	    static int syn_recursive = 0;
+
+	    ++syn_recursive;
+	    // Only pass TRUE for "force" when the value changed or not used
+	    // recursively, to avoid endless recurrence.
+	    apply_autocmds(EVENT_SYNTAX, curbuf->b_p_syn, curbuf->b_fname,
+		    value_changed || syn_recursive == 1, curbuf);
+	    --syn_recursive;
 	}
 #endif
 	else if (varp == &(curbuf->b_p_ft))
@@ -7714,11 +7825,17 @@ did_set_string_option(
 	    /* 'filetype' is set, trigger the FileType autocommand.
 	     * Skip this when called from a modeline and the filetype was
 	     * already set to this value. */
-	    if (!(opt_flags & OPT_MODELINE) || ft_changed)
+	    if (!(opt_flags & OPT_MODELINE) || value_changed)
 	    {
+		static int ft_recursive = 0;
+
+		++ft_recursive;
 		did_filetype = TRUE;
-		apply_autocmds(EVENT_FILETYPE, curbuf->b_p_ft,
-					       curbuf->b_fname, TRUE, curbuf);
+		// Only pass TRUE for "force" when the value changed or not
+		// used recursively, to avoid endless recurrence.
+		apply_autocmds(EVENT_FILETYPE, curbuf->b_p_ft, curbuf->b_fname,
+				   value_changed || ft_recursive == 1, curbuf);
+		--ft_recursive;
 		/* Just in case the old "curbuf" is now invalid. */
 		if (varp != &(curbuf->b_p_ft))
 		    varp = NULL;
@@ -8569,14 +8686,9 @@ set_bool_option(
 
 #ifdef FEAT_TITLE
     /* when 'title' changed, may need to change the title; same for 'icon' */
-    else if ((int *)varp == &p_title)
+    else if ((int *)varp == &p_title || (int *)varp == &p_icon)
     {
-	did_set_title(FALSE);
-    }
-
-    else if ((int *)varp == &p_icon)
-    {
-	did_set_title(TRUE);
+	did_set_title();
     }
 #endif
 
@@ -8879,10 +8991,13 @@ set_bool_option(
 # endif
 	    highlight_gui_started();
 # ifdef FEAT_VTP
-	control_console_color_rgb();
 	/* reset t_Co */
 	if (is_term_win32())
+	{
+	    control_console_color_rgb();
 	    set_termname(T_NAME);
+	    init_highlight(TRUE, FALSE);
+	}
 # endif
     }
 #endif
@@ -8959,7 +9074,14 @@ set_num_option(
     if (curbuf->b_p_sw < 0)
     {
 	errmsg = e_positive;
+#ifdef FEAT_VARTABS
+	// Use the first 'vartabstop' value, or 'tabstop' if vts isn't in use.
+	curbuf->b_p_sw = tabstop_count(curbuf->b_p_vts_array) > 0
+	               ? tabstop_first(curbuf->b_p_vts_array)
+		       : curbuf->b_p_ts;
+#else
 	curbuf->b_p_sw = curbuf->b_p_ts;
+#endif
     }
 
     /*
@@ -8967,6 +9089,7 @@ set_num_option(
      */
     if (pp == &p_wh || pp == &p_hh)
     {
+	// 'winheight' and 'helpheight'
 	if (p_wh < 1)
 	{
 	    errmsg = e_positive;
@@ -8992,10 +9115,9 @@ set_num_option(
 		win_setheight((int)p_hh);
 	}
     }
-
-    /* 'winminheight' */
     else if (pp == &p_wmh)
     {
+	// 'winminheight'
 	if (p_wmh < 0)
 	{
 	    errmsg = e_positive;
@@ -9010,6 +9132,7 @@ set_num_option(
     }
     else if (pp == &p_wiw)
     {
+	// 'winwidth'
 	if (p_wiw < 1)
 	{
 	    errmsg = e_positive;
@@ -9025,10 +9148,9 @@ set_num_option(
 	if (!ONE_WINDOW && curwin->w_width < p_wiw)
 	    win_setwidth((int)p_wiw);
     }
-
-    /* 'winminwidth' */
     else if (pp == &p_wmw)
     {
+	// 'winminwidth'
 	if (p_wmw < 0)
 	{
 	    errmsg = e_positive;
@@ -9039,7 +9161,7 @@ set_num_option(
 	    errmsg = e_winwidth;
 	    p_wmw = p_wiw;
 	}
-	win_setminheight();
+	win_setminwidth();
     }
 
     /* (re)set last window status line */
@@ -9629,7 +9751,7 @@ get_option_value(
 	int key;
 
 	if (STRLEN(name) == 4 && name[0] == 't' && name[1] == '_'
-		&& (key = find_key_option(name)) != 0)
+		&& (key = find_key_option(name, FALSE)) != 0)
 	{
 	    char_u key_name[2];
 	    char_u *p;
@@ -9784,7 +9906,7 @@ get_option_value_strict(
 	     * consider it set when 'ff' or 'fenc' changed. */
 	    if (p->indir == PV_MOD)
 	    {
-		*numval = bufIsChanged((buf_T *) from);
+		*numval = bufIsChanged((buf_T *)from);
 		varp = NULL;
 	    }
 #ifdef FEAT_CRYPT
@@ -9797,17 +9919,21 @@ get_option_value_strict(
 #endif
 	    else
 	    {
-		aco_save_T	aco;
-		aucmd_prepbuf(&aco, (buf_T *) from);
+		buf_T *save_curbuf = curbuf;
+
+		// only getting a pointer, no need to use aucmd_prepbuf()
+		curbuf = (buf_T *)from;
+		curwin->w_buffer = curbuf;
 		varp = get_varp(p);
-		aucmd_restbuf(&aco);
+		curbuf = save_curbuf;
+		curwin->w_buffer = curbuf;
 	    }
 	}
 	else if (opt_type == SREQ_WIN)
 	{
-	    win_T	*save_curwin;
-	    save_curwin = curwin;
-	    curwin = (win_T *) from;
+	    win_T	*save_curwin = curwin;
+
+	    curwin = (win_T *)from;
 	    curbuf = curwin->w_buffer;
 	    varp = get_varp(p);
 	    curwin = save_curwin;
@@ -9915,7 +10041,7 @@ set_option_value(
 	int key;
 
 	if (STRLEN(name) == 4 && name[0] == 't' && name[1] == '_'
-		&& (key = find_key_option(name)) != 0)
+		&& (key = find_key_option(name, FALSE)) != 0)
 	{
 	    char_u key_name[2];
 
@@ -10036,12 +10162,15 @@ get_encoding_default(void)
 
 /*
  * Translate a string like "t_xx", "<t_xx>" or "<S-Tab>" to a key number.
+ * When "has_lt" is true there is a '<' before "*arg_arg".
+ * Returns 0 when the key is not recognized.
  */
     static int
-find_key_option(char_u *arg)
+find_key_option(char_u *arg_arg, int has_lt)
 {
-    int		key;
+    int		key = 0;
     int		modifiers;
+    char_u	*arg = arg_arg;
 
     /*
      * Don't use get_special_key_code() for t_xx, we don't want it to call
@@ -10049,7 +10178,7 @@ find_key_option(char_u *arg)
      */
     if (arg[0] == 't' && arg[1] == '_' && arg[2] && arg[3])
 	key = TERMCAP2KEY(arg[2], arg[3]);
-    else
+    else if (has_lt)
     {
 	--arg;			    /* put arg at the '<' */
 	modifiers = 0;
@@ -11035,6 +11164,10 @@ get_varp(struct vimoption *p)
 #ifdef FEAT_SIGNS
 	case PV_SCL:	return (char_u *)&(curwin->w_p_scl);
 #endif
+#ifdef FEAT_VARTABS
+	case PV_VSTS:	return (char_u *)&(curbuf->b_p_vsts);
+	case PV_VTS:	return (char_u *)&(curbuf->b_p_vts);
+#endif
 	default:	IEMSG(_("E356: get_varp ERROR"));
     }
     /* always return a valid pointer to avoid a crash! */
@@ -11359,6 +11492,15 @@ buf_copy_options(buf_T *buf, int flags)
 #endif
 	    buf->b_p_sts = p_sts;
 	    buf->b_p_sts_nopaste = p_sts_nopaste;
+#ifdef FEAT_VARTABS
+	    buf->b_p_vsts = vim_strsave(p_vsts);
+	    if (p_vsts && p_vsts != empty_option)
+		tabstop_set(p_vsts, &buf->b_p_vsts_array);
+	    else
+		buf->b_p_vsts_array = 0;
+	    buf->b_p_vsts_nopaste = p_vsts_nopaste
+				 ? vim_strsave(p_vsts_nopaste) : NULL;
+#endif
 	    buf->b_p_sn = p_sn;
 #ifdef FEAT_COMMENTS
 	    buf->b_p_com = vim_strsave(p_com);
@@ -11483,12 +11625,27 @@ buf_copy_options(buf_T *buf, int flags)
 	     * or to a help buffer.
 	     */
 	    if (dont_do_help)
+	    {
 		buf->b_p_isk = save_p_isk;
+#ifdef FEAT_VARTABS
+		if (p_vts && p_vts != empty_option && !buf->b_p_vts_array)
+		    tabstop_set(p_vts, &buf->b_p_vts_array);
+		else
+		    buf->b_p_vts_array = NULL;
+#endif
+	    }
 	    else
 	    {
 		buf->b_p_isk = vim_strsave(p_isk);
 		did_isk = TRUE;
 		buf->b_p_ts = p_ts;
+#ifdef FEAT_VARTABS
+		buf->b_p_vts = vim_strsave(p_vts);
+		if (p_vts && p_vts != empty_option && !buf->b_p_vts_array)
+		    tabstop_set(p_vts, &buf->b_p_vts_array);
+		else
+		    buf->b_p_vts_array = NULL;
+#endif
 		buf->b_help = FALSE;
 		if (buf->b_p_bt[0] == 'h')
 		    clear_string_option(&buf->b_p_bt);
@@ -12308,6 +12465,12 @@ paste_option_changed(void)
 		buf->b_p_sts_nopaste = buf->b_p_sts;
 		buf->b_p_ai_nopaste = buf->b_p_ai;
 		buf->b_p_et_nopaste = buf->b_p_et;
+#ifdef FEAT_VARTABS
+		if (buf->b_p_vsts_nopaste)
+		    vim_free(buf->b_p_vsts_nopaste);
+		buf->b_p_vsts_nopaste = buf->b_p_vsts && buf->b_p_vsts != empty_option
+				     ? vim_strsave(buf->b_p_vsts) : NULL;
+#endif
 	    }
 
 	    /* save global options */
@@ -12326,6 +12489,11 @@ paste_option_changed(void)
 	    p_sts_nopaste = p_sts;
 	    p_tw_nopaste = p_tw;
 	    p_wm_nopaste = p_wm;
+#ifdef FEAT_VARTABS
+	    if (p_vsts_nopaste)
+		vim_free(p_vsts_nopaste);
+	    p_vsts_nopaste = p_vsts && p_vsts != empty_option ? vim_strsave(p_vsts) : NULL;
+#endif
 	}
 
 	/*
@@ -12340,6 +12508,14 @@ paste_option_changed(void)
 	    buf->b_p_sts = 0;	    /* softtabstop is 0 */
 	    buf->b_p_ai = 0;	    /* no auto-indent */
 	    buf->b_p_et = 0;	    /* no expandtab */
+#ifdef FEAT_VARTABS
+	    if (buf->b_p_vsts)
+		free_string_option(buf->b_p_vsts);
+	    buf->b_p_vsts = empty_option;
+	    if (buf->b_p_vsts_array)
+		vim_free(buf->b_p_vsts_array);
+	    buf->b_p_vsts_array = 0;
+#endif
 	}
 
 	/* set global options */
@@ -12359,6 +12535,11 @@ paste_option_changed(void)
 	p_wm = 0;
 	p_sts = 0;
 	p_ai = 0;
+#ifdef FEAT_VARTABS
+	if (p_vsts)
+	    free_string_option(p_vsts);
+	p_vsts = empty_option;
+#endif
     }
 
     /*
@@ -12374,6 +12555,18 @@ paste_option_changed(void)
 	    buf->b_p_sts = buf->b_p_sts_nopaste;
 	    buf->b_p_ai = buf->b_p_ai_nopaste;
 	    buf->b_p_et = buf->b_p_et_nopaste;
+#ifdef FEAT_VARTABS
+	    if (buf->b_p_vsts)
+		free_string_option(buf->b_p_vsts);
+	    buf->b_p_vsts = buf->b_p_vsts_nopaste
+			 ? vim_strsave(buf->b_p_vsts_nopaste) : empty_option;
+	    if (buf->b_p_vsts_array)
+		vim_free(buf->b_p_vsts_array);
+	    if (buf->b_p_vsts && buf->b_p_vsts != empty_option)
+		tabstop_set(buf->b_p_vsts, &buf->b_p_vsts_array);
+	    else
+		buf->b_p_vsts_array = 0;
+#endif
 	}
 
 	/* restore global options */
@@ -12394,6 +12587,11 @@ paste_option_changed(void)
 	p_sts = p_sts_nopaste;
 	p_tw = p_tw_nopaste;
 	p_wm = p_wm_nopaste;
+#ifdef FEAT_VARTABS
+	if (p_vsts)
+	    free_string_option(p_vsts);
+	p_vsts = p_vsts_nopaste ? vim_strsave(p_vsts_nopaste) : empty_option;
+#endif
     }
 
     old_p_paste = p_paste;
@@ -12655,6 +12853,10 @@ check_opt_wim(void)
 can_bs(
     int		what)	    /* BS_INDENT, BS_EOL or BS_START */
 {
+#ifdef FEAT_JOB_CHANNEL
+    if (what == BS_START && bt_prompt(curbuf))
+	return FALSE;
+#endif
     switch (*p_bs)
     {
 	case '2':	return TRUE;
@@ -12730,6 +12932,298 @@ check_ff_value(char_u *p)
     return check_opt_strings(p, p_ff_values, FALSE);
 }
 
+#ifdef FEAT_VARTABS
+
+/*
+ * Set the integer values corresponding to the string setting of 'vartabstop'.
+ */
+    int
+tabstop_set(char_u *var, int **array)
+{
+    int valcount = 1;
+    int t;
+    char_u *cp;
+
+    if ((!var[0] || (var[0] == '0' && !var[1])))
+    {
+	*array = NULL;
+	return TRUE;
+    }
+
+    for (cp = var; *cp; ++cp)
+    {
+	if (cp == var || *(cp - 1) == ',')
+	{
+	    char_u *end;
+	    if (strtol((char *)cp, (char **)&end, 10) <= 0)
+	    {
+		if (cp != end)
+		    EMSG(_(e_positive));
+		else
+		    EMSG(_(e_invarg));
+		return FALSE;
+	    }
+	}
+
+	if (VIM_ISDIGIT(*cp))
+	    continue;
+	if (*cp == ',' && cp > var && *(cp - 1) != ',')
+	{
+	    ++valcount;
+	    continue;
+	}
+	EMSG(_(e_invarg));
+	return FALSE;
+    }
+
+    *array = (int *) alloc((unsigned) ((valcount + 1) * sizeof(int)));
+    (*array)[0] = valcount;
+
+    t = 1;
+    for (cp = var; *cp;)
+    {
+	(*array)[t++] = atoi((char *)cp);
+	while (*cp && *cp != ',')
+	    ++cp;
+	if (*cp)
+	    ++cp;
+    }
+
+    return TRUE;
+}
+
+/*
+ * Calculate the number of screen spaces a tab will occupy.
+ * If "vts" is set then the tab widths are taken from that array,
+ * otherwise the value of ts is used.
+ */
+    int
+tabstop_padding(colnr_T col, int ts_arg, int *vts)
+{
+    int		ts = ts_arg == 0 ? 8 : ts_arg;
+    int		tabcount;
+    colnr_T	tabcol = 0;
+    int		t;
+    int		padding = 0;
+
+    if (vts == NULL || vts[0] == 0)
+	return ts - (col % ts);
+
+    tabcount = vts[0];
+
+    for (t = 1; t <= tabcount; ++t)
+    {
+	tabcol += vts[t];
+	if (tabcol > col)
+	{
+	    padding = (int)(tabcol - col);
+	    break;
+	}
+    }
+    if (t > tabcount)
+	padding = vts[tabcount] - (int)((col - tabcol) % vts[tabcount]);
+
+    return padding;
+}
+
+/*
+ * Find the size of the tab that covers a particular column.
+ */
+    int
+tabstop_at(colnr_T col, int ts, int *vts)
+{
+    int		tabcount;
+    colnr_T	tabcol = 0;
+    int		t;
+    int		tab_size = 0;
+
+    if (vts == 0 || vts[0] == 0)
+	return ts;
+
+    tabcount = vts[0];
+    for (t = 1; t <= tabcount; ++t)
+    {
+	tabcol += vts[t];
+	if (tabcol > col)
+	{
+	    tab_size = vts[t];
+	    break;
+	}
+    }
+    if (t > tabcount)
+	tab_size = vts[tabcount];
+
+    return tab_size;
+}
+
+/*
+ * Find the column on which a tab starts.
+ */
+    colnr_T
+tabstop_start(colnr_T col, int ts, int *vts)
+{
+    int		tabcount;
+    colnr_T	tabcol = 0;
+    int		t;
+    int         excess;
+
+    if (vts == NULL || vts[0] == 0)
+	return (col / ts) * ts;
+
+    tabcount = vts[0];
+    for (t = 1; t <= tabcount; ++t)
+    {
+	tabcol += vts[t];
+	if (tabcol > col)
+	    return tabcol - vts[t];
+    }
+
+    excess = tabcol % vts[tabcount];
+    return excess + ((col - excess) / vts[tabcount]) * vts[tabcount];
+}
+
+/*
+ * Find the number of tabs and spaces necessary to get from one column
+ * to another.
+ */
+    void
+tabstop_fromto(
+	colnr_T start_col,
+	colnr_T end_col,
+	int	ts_arg,
+	int	*vts,
+	int	*ntabs,
+	int	*nspcs)
+{
+    int		spaces = end_col - start_col;
+    colnr_T	tabcol = 0;
+    int		padding = 0;
+    int		tabcount;
+    int		t;
+    int		ts = ts_arg == 0 ? curbuf->b_p_ts : ts_arg;
+
+    if (vts == NULL || vts[0] == 0)
+    {
+	int tabs = 0;
+	int initspc = 0;
+
+	initspc = ts - (start_col % ts);
+	if (spaces >= initspc)
+	{
+	    spaces -= initspc;
+	    tabs++;
+	}
+	tabs += spaces / ts;
+	spaces -= (spaces / ts) * ts;
+
+	*ntabs = tabs;
+	*nspcs = spaces;
+	return;
+    }
+
+    /* Find the padding needed to reach the next tabstop. */
+    tabcount = vts[0];
+    for (t = 1; t <= tabcount; ++t)
+    {
+	tabcol += vts[t];
+	if (tabcol > start_col)
+	{
+	    padding = (int)(tabcol - start_col);
+	    break;
+	}
+    }
+    if (t > tabcount)
+	padding = vts[tabcount] - (int)((start_col - tabcol) % vts[tabcount]);
+
+    /* If the space needed is less than the padding no tabs can be used. */
+    if (spaces < padding)
+    {
+	*ntabs = 0;
+	*nspcs = spaces;
+	return;
+    }
+
+    *ntabs = 1;
+    spaces -= padding;
+
+    /* At least one tab has been used. See if any more will fit. */
+    while (spaces != 0 && ++t <= tabcount)
+    {
+	padding = vts[t];
+	if (spaces < padding)
+	{
+	    *nspcs = spaces;
+	    return;
+	}
+	++*ntabs;
+	spaces -= padding;
+    }
+
+    *ntabs += spaces / vts[tabcount];
+    *nspcs =  spaces % vts[tabcount];
+}
+
+/*
+ * See if two tabstop arrays contain the same values.
+ */
+    int
+tabstop_eq(int *ts1, int *ts2)
+{
+    int		t;
+
+    if ((ts1 == 0 && ts2) || (ts1 && ts2 == 0))
+	return FALSE;
+    if (ts1 == ts2)
+	return TRUE;
+    if (ts1[0] != ts2[0])
+	return FALSE;
+
+    for (t = 1; t <= ts1[0]; ++t)
+	if (ts1[t] != ts2[t])
+	    return FALSE;
+
+    return TRUE;
+}
+
+/*
+ * Copy a tabstop array, allocating space for the new array.
+ */
+    int *
+tabstop_copy(int *oldts)
+{
+    int		*newts;
+    int		t;
+
+    if (oldts == 0)
+	return 0;
+
+    newts = (int *) alloc((unsigned) ((oldts[0] + 1) * sizeof(int)));
+    for (t = 0; t <= oldts[0]; ++t)
+	newts[t] = oldts[t];
+
+    return newts;
+}
+
+/*
+ * Return a count of the number of tabstops.
+ */
+    int
+tabstop_count(int *ts)
+{
+    return ts != NULL ? ts[0] : 0;
+}
+
+/*
+ * Return the first tabstop, or 8 if there are no tabstops defined.
+ */
+    int
+tabstop_first(int *ts)
+{
+    return ts != NULL ? ts[1] : 8;
+}
+
+#endif
+
 /*
  * Return the effective shiftwidth value for current buffer, using the
  * 'tabstop' value when 'shiftwidth' is zero.
@@ -12742,7 +13236,7 @@ get_sw_value(buf_T *buf)
 
 /*
  * Return the effective softtabstop value for the current buffer, using the
- * 'tabstop' value when 'softtabstop' is negative.
+ * 'shiftwidth' value when 'softtabstop' is negative.
  */
     long
 get_sts_value(void)
@@ -13040,11 +13534,11 @@ get_winbuf_options(int bufopt)
 	    if (varp != NULL)
 	    {
 		if (opt->flags & P_STRING)
-		    dict_add_nr_str(d, opt->fullname, 0L, *(char_u **)varp);
+		    dict_add_string(d, opt->fullname, *(char_u **)varp);
 		else if (opt->flags & P_NUM)
-		    dict_add_nr_str(d, opt->fullname, *(long *)varp, NULL);
+		    dict_add_number(d, opt->fullname, *(long *)varp);
 		else
-		    dict_add_nr_str(d, opt->fullname, *(int *)varp, NULL);
+		    dict_add_number(d, opt->fullname, *(int *)varp);
 	    }
 	}
     }

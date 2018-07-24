@@ -671,7 +671,6 @@ static struct builtin_term builtin_termcaps[] =
 /*
  * VT320 is working as an ANSI terminal compatible DEC terminal.
  * (it covers VT1x0, VT2x0 and VT3x0 up to VT320 on VMS as well)
- * Note: K_F1...K_F5 are for internal use, should not be defined.
  * TODO:- rewrite ESC[ codes to CSI
  *      - keyboard languages (CSI ? 26 n)
  */
@@ -723,6 +722,8 @@ static struct builtin_term builtin_termcaps[] =
     {K_DOWN,		IF_EB("\033[B", ESC_STR "[B")},
     {K_RIGHT,		IF_EB("\033[C", ESC_STR "[C")},
     {K_LEFT,		IF_EB("\033[D", ESC_STR "[D")},
+    // Note: cursor key sequences for application cursor mode are omitted,
+    // because they interfere with typed commands: <Esc>OA.
     {K_F1,		IF_EB("\033[11~", ESC_STR "[11~")},
     {K_F2,		IF_EB("\033[12~", ESC_STR "[12~")},
     {K_F3,		IF_EB("\033[13~", ESC_STR "[13~")},
@@ -749,11 +750,23 @@ static struct builtin_term builtin_termcaps[] =
     {K_END,		IF_EB("\033[4~", ESC_STR "[4~")},
     {K_PAGEUP,		IF_EB("\033[5~", ESC_STR "[5~")},
     {K_PAGEDOWN,	IF_EB("\033[6~", ESC_STR "[6~")},
+    // These sequences starting with <Esc> O may interfere with what the user
+    // is typing.  Remove these if that bothers you.
     {K_KPLUS,		IF_EB("\033Ok", ESC_STR "Ok")},	/* keypad plus */
     {K_KMINUS,		IF_EB("\033Om", ESC_STR "Om")},	/* keypad minus */
     {K_KDIVIDE,		IF_EB("\033Oo", ESC_STR "Oo")},	/* keypad / */
     {K_KMULTIPLY,	IF_EB("\033Oj", ESC_STR "Oj")},	/* keypad * */
     {K_KENTER,		IF_EB("\033OM", ESC_STR "OM")},	/* keypad Enter */
+    {K_K0,		IF_EB("\033Op", ESC_STR "Op")},	/* keypad 0 */
+    {K_K1,		IF_EB("\033Oq", ESC_STR "Oq")},	/* keypad 1 */
+    {K_K2,		IF_EB("\033Or", ESC_STR "Or")},	/* keypad 2 */
+    {K_K3,		IF_EB("\033Os", ESC_STR "Os")},	/* keypad 3 */
+    {K_K4,		IF_EB("\033Ot", ESC_STR "Ot")},	/* keypad 4 */
+    {K_K5,		IF_EB("\033Ou", ESC_STR "Ou")},	/* keypad 5 */
+    {K_K6,		IF_EB("\033Ov", ESC_STR "Ov")},	/* keypad 6 */
+    {K_K7,		IF_EB("\033Ow", ESC_STR "Ow")},	/* keypad 7 */
+    {K_K8,		IF_EB("\033Ox", ESC_STR "Ox")},	/* keypad 8 */
+    {K_K9,		IF_EB("\033Oy", ESC_STR "Oy")},	/* keypad 9 */
     {K_BS,		"\x7f"},	/* for some reason 0177 doesn't work */
 # endif
 
@@ -960,6 +973,16 @@ static struct builtin_term builtin_termcaps[] =
     {K_KMULTIPLY,	IF_EB("\033O*j", ESC_STR "O*j")},     /* keypad * */
     {K_KENTER,		IF_EB("\033O*M", ESC_STR "O*M")},     /* keypad Enter */
     {K_KPOINT,		IF_EB("\033O*n", ESC_STR "O*n")},     /* keypad . */
+    {K_K0,		IF_EB("\033O*p", ESC_STR "O*p")},     /* keypad 0 */
+    {K_K1,		IF_EB("\033O*q", ESC_STR "O*q")},     /* keypad 1 */
+    {K_K2,		IF_EB("\033O*r", ESC_STR "O*r")},     /* keypad 2 */
+    {K_K3,		IF_EB("\033O*s", ESC_STR "O*s")},     /* keypad 3 */
+    {K_K4,		IF_EB("\033O*t", ESC_STR "O*t")},     /* keypad 4 */
+    {K_K5,		IF_EB("\033O*u", ESC_STR "O*u")},     /* keypad 5 */
+    {K_K6,		IF_EB("\033O*v", ESC_STR "O*v")},     /* keypad 6 */
+    {K_K7,		IF_EB("\033O*w", ESC_STR "O*w")},     /* keypad 7 */
+    {K_K8,		IF_EB("\033O*x", ESC_STR "O*x")},     /* keypad 8 */
+    {K_K9,		IF_EB("\033O*y", ESC_STR "O*y")},     /* keypad 9 */
     {K_KDEL,		IF_EB("\033[3;*~", ESC_STR "[3;*~")}, /* keypad Del */
     {K_PS,		IF_EB("\033[200~", ESC_STR "[200~")}, /* paste start */
     {K_PE,		IF_EB("\033[201~", ESC_STR "[201~")}, /* paste end */
@@ -1466,7 +1489,7 @@ parse_builtin_tcap(char_u *term)
 			    if (term_7to8bit(t))
 			    {
 				*t = term_7to8bit(t);
-				STRCPY(t + 1, t + 2);
+				STRMOVE(t + 1, t + 2);
 			    }
 			term_strings[p->bt_entry] = s;
 			set_term_option_alloced(&term_strings[p->bt_entry]);
@@ -1550,6 +1573,152 @@ static char *(key_names[]) =
 };
 #endif
 
+#ifdef HAVE_TGETENT
+    static void
+get_term_entries(int *height, int *width)
+{
+    static struct {
+		    enum SpecialKey dest; /* index in term_strings[] */
+		    char *name;		  /* termcap name for string */
+		  } string_names[] =
+		    {	{KS_CE, "ce"}, {KS_AL, "al"}, {KS_CAL,"AL"},
+			{KS_DL, "dl"}, {KS_CDL,"DL"}, {KS_CS, "cs"},
+			{KS_CL, "cl"}, {KS_CD, "cd"},
+			{KS_VI, "vi"}, {KS_VE, "ve"}, {KS_MB, "mb"},
+			{KS_ME, "me"}, {KS_MR, "mr"},
+			{KS_MD, "md"}, {KS_SE, "se"}, {KS_SO, "so"},
+			{KS_CZH,"ZH"}, {KS_CZR,"ZR"}, {KS_UE, "ue"},
+			{KS_US, "us"}, {KS_UCE, "Ce"}, {KS_UCS, "Cs"},
+			{KS_STE,"Te"}, {KS_STS,"Ts"},
+			{KS_CM, "cm"}, {KS_SR, "sr"},
+			{KS_CRI,"RI"}, {KS_VB, "vb"}, {KS_KS, "ks"},
+			{KS_KE, "ke"}, {KS_TI, "ti"}, {KS_TE, "te"},
+			{KS_BC, "bc"}, {KS_CSB,"Sb"}, {KS_CSF,"Sf"},
+			{KS_CAB,"AB"}, {KS_CAF,"AF"}, {KS_LE, "le"},
+			{KS_ND, "nd"}, {KS_OP, "op"}, {KS_CRV, "RV"},
+			{KS_VS, "vs"}, {KS_CVS, "VS"},
+			{KS_CIS, "IS"}, {KS_CIE, "IE"},
+			{KS_CSC, "SC"}, {KS_CEC, "EC"},
+			{KS_TS, "ts"}, {KS_FS, "fs"},
+			{KS_CWP, "WP"}, {KS_CWS, "WS"},
+			{KS_CSI, "SI"}, {KS_CEI, "EI"},
+			{KS_U7, "u7"}, {KS_RFG, "RF"}, {KS_RBG, "RB"},
+			{KS_8F, "8f"}, {KS_8B, "8b"},
+			{KS_CBE, "BE"}, {KS_CBD, "BD"},
+			{KS_CPS, "PS"}, {KS_CPE, "PE"},
+			{(enum SpecialKey)0, NULL}
+		    };
+    int		    i;
+    char_u	    *p;
+    static char_u   tstrbuf[TBUFSZ];
+    char_u	    *tp = tstrbuf;
+
+    /*
+     * get output strings
+     */
+    for (i = 0; string_names[i].name != NULL; ++i)
+    {
+	if (TERM_STR(string_names[i].dest) == NULL
+			     || TERM_STR(string_names[i].dest) == empty_option)
+	    TERM_STR(string_names[i].dest) = TGETSTR(string_names[i].name, &tp);
+    }
+
+    /* tgetflag() returns 1 if the flag is present, 0 if not and
+     * possibly -1 if the flag doesn't exist. */
+    if ((T_MS == NULL || T_MS == empty_option) && tgetflag("ms") > 0)
+	T_MS = (char_u *)"y";
+    if ((T_XS == NULL || T_XS == empty_option) && tgetflag("xs") > 0)
+	T_XS = (char_u *)"y";
+    if ((T_XN == NULL || T_XN == empty_option) && tgetflag("xn") > 0)
+	T_XN = (char_u *)"y";
+    if ((T_DB == NULL || T_DB == empty_option) && tgetflag("db") > 0)
+	T_DB = (char_u *)"y";
+    if ((T_DA == NULL || T_DA == empty_option) && tgetflag("da") > 0)
+	T_DA = (char_u *)"y";
+    if ((T_UT == NULL || T_UT == empty_option) && tgetflag("ut") > 0)
+	T_UT = (char_u *)"y";
+
+    /*
+     * get key codes
+     */
+    for (i = 0; key_names[i] != NULL; ++i)
+	if (find_termcode((char_u *)key_names[i]) == NULL)
+	{
+	    p = TGETSTR(key_names[i], &tp);
+	    /* if cursor-left == backspace, ignore it (televideo 925) */
+	    if (p != NULL
+		    && (*p != Ctrl_H
+			|| key_names[i][0] != 'k'
+			|| key_names[i][1] != 'l'))
+		add_termcode((char_u *)key_names[i], p, FALSE);
+	}
+
+    if (*height == 0)
+	*height = tgetnum("li");
+    if (*width == 0)
+	*width = tgetnum("co");
+
+    /*
+     * Get number of colors (if not done already).
+     */
+    if (TERM_STR(KS_CCO) == NULL || TERM_STR(KS_CCO) == empty_option)
+	set_color_count(tgetnum("Co"));
+
+# ifndef hpux
+    BC = (char *)TGETSTR("bc", &tp);
+    UP = (char *)TGETSTR("up", &tp);
+    p = TGETSTR("pc", &tp);
+    if (p)
+	PC = *p;
+# endif
+}
+#endif
+
+    static void
+report_term_error(char_u *error_msg, char_u *term)
+{
+    struct builtin_term *termp;
+
+    mch_errmsg("\r\n");
+    if (error_msg != NULL)
+    {
+	mch_errmsg((char *)error_msg);
+	mch_errmsg("\r\n");
+    }
+    mch_errmsg("'");
+    mch_errmsg((char *)term);
+    mch_errmsg(_("' not known. Available builtin terminals are:"));
+    mch_errmsg("\r\n");
+    for (termp = &(builtin_termcaps[0]); termp->bt_string != NULL; ++termp)
+    {
+	if (termp->bt_entry == (int)KS_NAME)
+	{
+#ifdef HAVE_TGETENT
+	    mch_errmsg("    builtin_");
+#else
+	    mch_errmsg("    ");
+#endif
+	    mch_errmsg(termp->bt_string);
+	    mch_errmsg("\r\n");
+	}
+    }
+}
+
+    static void
+report_default_term(char_u *term)
+{
+    mch_errmsg(_("defaulting to '"));
+    mch_errmsg((char *)term);
+    mch_errmsg("'\r\n");
+    if (emsg_silent == 0)
+    {
+	screen_start();	/* don't know where cursor is now */
+	out_flush();
+	if (!is_not_a_term())
+	    ui_delay(2000L, TRUE);
+    }
+}
+
 /*
  * Set terminal options for terminal "term".
  * Return OK if terminal 'term' was found in a termcap, FAIL otherwise.
@@ -1601,42 +1770,7 @@ set_termname(char_u *term)
 	 */
 	if (try == 1)
 	{
-	    char_u	    *p;
-	    static char_u   tstrbuf[TBUFSZ];
-	    int		    i;
 	    char_u	    tbuf[TBUFSZ];
-	    char_u	    *tp;
-	    static struct {
-			    enum SpecialKey dest; /* index in term_strings[] */
-			    char *name;		  /* termcap name for string */
-			  } string_names[] =
-			    {	{KS_CE, "ce"}, {KS_AL, "al"}, {KS_CAL,"AL"},
-				{KS_DL, "dl"}, {KS_CDL,"DL"}, {KS_CS, "cs"},
-				{KS_CL, "cl"}, {KS_CD, "cd"},
-				{KS_VI, "vi"}, {KS_VE, "ve"}, {KS_MB, "mb"},
-				{KS_ME, "me"}, {KS_MR, "mr"},
-				{KS_MD, "md"}, {KS_SE, "se"}, {KS_SO, "so"},
-				{KS_CZH,"ZH"}, {KS_CZR,"ZR"}, {KS_UE, "ue"},
-				{KS_US, "us"}, {KS_UCE, "Ce"}, {KS_UCS, "Cs"},
-				{KS_STE,"Te"}, {KS_STS,"Ts"},
-				{KS_CM, "cm"}, {KS_SR, "sr"},
-				{KS_CRI,"RI"}, {KS_VB, "vb"}, {KS_KS, "ks"},
-				{KS_KE, "ke"}, {KS_TI, "ti"}, {KS_TE, "te"},
-				{KS_BC, "bc"}, {KS_CSB,"Sb"}, {KS_CSF,"Sf"},
-				{KS_CAB,"AB"}, {KS_CAF,"AF"}, {KS_LE, "le"},
-				{KS_ND, "nd"}, {KS_OP, "op"}, {KS_CRV, "RV"},
-				{KS_VS, "vs"}, {KS_CVS, "VS"},
-				{KS_CIS, "IS"}, {KS_CIE, "IE"},
-				{KS_CSC, "SC"}, {KS_CEC, "EC"},
-				{KS_TS, "ts"}, {KS_FS, "fs"},
-				{KS_CWP, "WP"}, {KS_CWS, "WS"},
-				{KS_CSI, "SI"}, {KS_CEI, "EI"},
-				{KS_U7, "u7"}, {KS_RFG, "RF"}, {KS_RBG, "RB"},
-				{KS_8F, "8f"}, {KS_8B, "8b"},
-				{KS_CBE, "BE"}, {KS_CBD, "BD"},
-				{KS_CPS, "PS"}, {KS_CPE, "PE"},
-				{(enum SpecialKey)0, NULL}
-			    };
 
 	    /*
 	     * If the external termcap does not have a matching entry, try the
@@ -1644,81 +1778,13 @@ set_termname(char_u *term)
 	     */
 	    if ((error_msg = tgetent_error(tbuf, term)) == NULL)
 	    {
-		tp = tstrbuf;
 		if (!termcap_cleared)
 		{
 		    clear_termoptions();	/* clear old options */
 		    termcap_cleared = TRUE;
 		}
 
-	    /* get output strings */
-		for (i = 0; string_names[i].name != NULL; ++i)
-		{
-		    if (TERM_STR(string_names[i].dest) == NULL
-			    || TERM_STR(string_names[i].dest) == empty_option)
-			TERM_STR(string_names[i].dest) =
-					   TGETSTR(string_names[i].name, &tp);
-		}
-
-		/* tgetflag() returns 1 if the flag is present, 0 if not and
-		 * possibly -1 if the flag doesn't exist. */
-		if ((T_MS == NULL || T_MS == empty_option)
-							&& tgetflag("ms") > 0)
-		    T_MS = (char_u *)"y";
-		if ((T_XS == NULL || T_XS == empty_option)
-							&& tgetflag("xs") > 0)
-		    T_XS = (char_u *)"y";
-		if ((T_XN == NULL || T_XN == empty_option)
-							&& tgetflag("xn") > 0)
-		    T_XN = (char_u *)"y";
-		if ((T_DB == NULL || T_DB == empty_option)
-							&& tgetflag("db") > 0)
-		    T_DB = (char_u *)"y";
-		if ((T_DA == NULL || T_DA == empty_option)
-							&& tgetflag("da") > 0)
-		    T_DA = (char_u *)"y";
-		if ((T_UT == NULL || T_UT == empty_option)
-							&& tgetflag("ut") > 0)
-		    T_UT = (char_u *)"y";
-
-
-		/*
-		 * get key codes
-		 */
-		for (i = 0; key_names[i] != NULL; ++i)
-		{
-		    if (find_termcode((char_u *)key_names[i]) == NULL)
-		    {
-			p = TGETSTR(key_names[i], &tp);
-			/* if cursor-left == backspace, ignore it (televideo
-			 * 925) */
-			if (p != NULL
-				&& (*p != Ctrl_H
-				    || key_names[i][0] != 'k'
-				    || key_names[i][1] != 'l'))
-			    add_termcode((char_u *)key_names[i], p, FALSE);
-		    }
-		}
-
-		if (height == 0)
-		    height = tgetnum("li");
-		if (width == 0)
-		    width = tgetnum("co");
-
-		/*
-		 * Get number of colors (if not done already).
-		 */
-		if (TERM_STR(KS_CCO) == NULL
-			|| TERM_STR(KS_CCO) == empty_option)
-		    set_color_count(tgetnum("Co"));
-
-# ifndef hpux
-		BC = (char *)TGETSTR("bc", &tp);
-		UP = (char *)TGETSTR("up", &tp);
-		p = TGETSTR("pc", &tp);
-		if (p)
-		    PC = *p;
-# endif /* hpux */
+		get_term_entries(&height, &width);
 	    }
 	}
 	else	    /* try == 0 || try == 2 */
@@ -1754,31 +1820,8 @@ set_termname(char_u *term)
 		if (termcap_cleared)		/* found in external termcap */
 		    break;
 #endif
+		report_term_error(error_msg, term);
 
-		mch_errmsg("\r\n");
-		if (error_msg != NULL)
-		{
-		    mch_errmsg((char *)error_msg);
-		    mch_errmsg("\r\n");
-		}
-		mch_errmsg("'");
-		mch_errmsg((char *)term);
-		mch_errmsg(_("' not known. Available builtin terminals are:"));
-		mch_errmsg("\r\n");
-		for (termp = &(builtin_termcaps[0]); termp->bt_string != NULL;
-								      ++termp)
-		{
-		    if (termp->bt_entry == (int)KS_NAME)
-		    {
-#ifdef HAVE_TGETENT
-			mch_errmsg("    builtin_");
-#else
-			mch_errmsg("    ");
-#endif
-			mch_errmsg(termp->bt_string);
-			mch_errmsg("\r\n");
-		    }
-		}
 		/* when user typed :set term=xxx, quit here */
 		if (starting != NO_SCREEN)
 		{
@@ -1787,16 +1830,7 @@ set_termname(char_u *term)
 		    return FAIL;
 		}
 		term = DEFAULT_TERM;
-		mch_errmsg(_("defaulting to '"));
-		mch_errmsg((char *)term);
-		mch_errmsg("'\r\n");
-		if (emsg_silent == 0)
-		{
-		    screen_start();	/* don't know where cursor is now */
-		    out_flush();
-		    if (!is_not_a_term())
-			ui_delay(2000L, TRUE);
-		}
+		report_default_term(term);
 		set_string_option_direct((char_u *)"term", -1, term,
 								 OPT_FREE, 0);
 		display_errors();
@@ -2867,14 +2901,15 @@ term_color(char_u *s, int n)
 #else
 	char *format = "%s%s%%dm";
 #endif
-	sprintf(buf, format,
-		i == 2 ?
+	char *lead = i == 2 ? (
 #if defined(FEAT_VTP) && defined(FEAT_TERMGUICOLORS)
-		s[1] == '|' ? IF_EB("\033|", ESC_STR "|") :
+		    s[1] == '|' ? IF_EB("\033|", ESC_STR "|") :
 #endif
-		IF_EB("\033[", ESC_STR "[") : "\233",
-		s[i] == '3' ? (n >= 16 ? "38;5;" : "9")
-			    : (n >= 16 ? "48;5;" : "10"));
+		    IF_EB("\033[", ESC_STR "[")) : "\233";
+	char *tail = s[i] == '3' ? (n >= 16 ? "38;5;" : "9")
+				 : (n >= 16 ? "48;5;" : "10");
+
+	sprintf(buf, format, lead, tail);
 	OUT_STR(tgoto(buf, 0, n >= 16 ? n : n - 8));
     }
     else
@@ -4630,17 +4665,21 @@ check_termcode(
 
 			if (version == 95)
 			{
-			    /* Mac Terminal.app sends 1;95;0 */
+			    // Mac Terminal.app sends 1;95;0
 			    if (STRNCMP(tp + extra - 2, "1;95;0c", 7) == 0)
 			    {
 				is_not_xterm = TRUE;
 				is_mac_terminal = TRUE;
 			    }
 # ifdef FEAT_MOUSE_SGR
-			    /* iTerm2 sends 0;95;0 */
+			    // iTerm2 sends 0;95;0
 			    if (STRNCMP(tp + extra - 2, "0;95;0c", 7) == 0)
 				is_iterm2 = TRUE;
+			    else
 # endif
+			    // old iTerm2 sends 0;95;
+			    if (STRNCMP(tp + extra - 2, "0;95;c", 6) == 0)
+				is_not_xterm = TRUE;
 			}
 
 			/* Only set 'ttymouse' automatically if it was not set
@@ -4682,6 +4721,11 @@ check_termcode(
 			/* Konsole sends 0;115;0 */
 			if (version == 115
 				&& STRNCMP(tp + extra - 2, "0;115;0c", 8) == 0)
+			    is_not_xterm = TRUE;
+
+			// Xterm first responded to this request at patch level
+			// 95, so assume anything below 95 is not xterm.
+			if (version < 95)
 			    is_not_xterm = TRUE;
 
 			/* Only request the cursor style if t_SH and t_RS are

@@ -689,7 +689,7 @@ dbg_parsearg(
 }
 
 /*
- * ":breakadd".
+ * ":breakadd".  Also used for ":profile".
  */
     void
 ex_breakadd(exarg_T *eap)
@@ -1206,7 +1206,7 @@ profile_zero(proftime_T *tm)
 static timer_T	*first_timer = NULL;
 static long	last_timer_id = 0;
 
-    static long
+    long
 proftime_time_left(proftime_T *due, proftime_T *now)
 {
 #  ifdef WIN3264
@@ -1336,6 +1336,8 @@ check_due_timer(void)
 	this_due = proftime_time_left(&timer->tr_due, &now);
 	if (this_due <= 1)
 	{
+	    /* Save and restore a lot of flags, because the timer fires while
+	     * waiting for a character, which might be halfway a command. */
 	    int save_timer_busy = timer_busy;
 	    int save_vgetc_busy = vgetc_busy;
 	    int save_did_emsg = did_emsg;
@@ -1345,6 +1347,7 @@ check_due_timer(void)
 	    int save_did_throw = did_throw;
 	    int save_ex_pressedreturn = get_pressedreturn();
 	    except_T *save_current_exception = current_exception;
+	    vimvars_save_T vvsave;
 
 	    /* Create a scope for running the timer callback, ignoring most of
 	     * the current scope, such as being inside a try/catch. */
@@ -1357,6 +1360,7 @@ check_due_timer(void)
 	    trylevel = 0;
 	    did_throw = FALSE;
 	    current_exception = NULL;
+	    save_vimvars(&vvsave);
 
 	    timer->tr_firing = TRUE;
 	    timer_callback(timer);
@@ -1373,6 +1377,7 @@ check_due_timer(void)
 	    trylevel = save_trylevel;
 	    did_throw = save_did_throw;
 	    current_exception = save_current_exception;
+	    restore_vimvars(&vvsave);
 	    if (must_redraw != 0)
 		need_update_screen = TRUE;
 	    must_redraw = must_redraw > save_must_redraw
@@ -1414,7 +1419,7 @@ check_due_timer(void)
 	    bevalexpr_due_set = FALSE;
 	    if (balloonEval == NULL)
 	    {
-		balloonEval = (BalloonEval *)alloc(sizeof(BalloonEval));
+		balloonEval = (BalloonEval *)alloc_clear(sizeof(BalloonEval));
 		balloonEvalForTerm = TRUE;
 	    }
 	    if (balloonEval != NULL)
@@ -1423,6 +1428,10 @@ check_due_timer(void)
 	else if (next_due == -1 || next_due > this_due)
 	    next_due = this_due;
     }
+#endif
+#ifdef FEAT_TERMINAL
+    /* Some terminal windows may need their buffer updated. */
+    next_due = term_check_timers(next_due, &now);
 #endif
 
     return current_id != last_timer_id ? 1 : next_due;
@@ -1488,16 +1497,16 @@ add_timer_info(typval_T *rettv, timer_T *timer)
 	return;
     list_append_dict(list, dict);
 
-    dict_add_nr_str(dict, "id", timer->tr_id, NULL);
-    dict_add_nr_str(dict, "time", (long)timer->tr_interval, NULL);
+    dict_add_number(dict, "id", timer->tr_id);
+    dict_add_number(dict, "time", (long)timer->tr_interval);
 
     profile_start(&now);
     remaining = proftime_time_left(&timer->tr_due, &now);
-    dict_add_nr_str(dict, "remaining", (long)remaining, NULL);
+    dict_add_number(dict, "remaining", (long)remaining);
 
-    dict_add_nr_str(dict, "repeat",
-	       (long)(timer->tr_repeat < 0 ? -1 : timer->tr_repeat + 1), NULL);
-    dict_add_nr_str(dict, "paused", (long)(timer->tr_paused), NULL);
+    dict_add_number(dict, "repeat",
+		    (long)(timer->tr_repeat < 0 ? -1 : timer->tr_repeat + 1));
+    dict_add_number(dict, "paused", (long)(timer->tr_paused));
 
     di = dictitem_alloc((char_u *)"callback");
     if (di != NULL)
@@ -1515,7 +1524,6 @@ add_timer_info(typval_T *rettv, timer_T *timer)
 	    di->di_tv.v_type = VAR_FUNC;
 	    di->di_tv.vval.v_string = vim_strsave(timer->tr_callback);
 	}
-	di->di_tv.v_lock = 0;
     }
 }
 

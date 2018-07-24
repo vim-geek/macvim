@@ -1,4 +1,4 @@
-*quickfix.txt*  For Vim version 8.0.  Last change: 2018 May 01
+*quickfix.txt*  For Vim version 8.1.  Last change: 2018 May 01
 
 
 		  VIM REFERENCE MANUAL    by Bram Moolenaar
@@ -298,6 +298,10 @@ processing a quickfix or location list command, it will be aborted.
 			from the last error backwards, -1 being the last error.
 			The 'switchbuf' settings are respected when jumping
 			to a buffer.
+			The |:filter| command can be used to display only the
+			quickfix entries matching a supplied pattern. The
+			pattern is matched against the filename, module name,
+			pattern and text of the entry.
 
 :cl[ist] +{count}	List the current and next {count} valid errors.  This
 			is similar to ":clist from from+count", where "from"
@@ -608,6 +612,12 @@ using these functions are below:
     " get the identifier of the current quickfix list
     :let qfid = getqflist({'id' : 0}).id
 
+    " get the identifier of the fourth quickfix list in the stack
+    :let qfid = getqflist({'nr' : 4, 'id' : 0}).id
+
+    " check whether a quickfix list with a specific identifier exists
+    :if getqflist({'id' : qfid}).id == qfid
+
     " get the index of the current quickfix list in the stack
     :let qfnum = getqflist({'nr' : 0}).nr
 
@@ -653,6 +663,11 @@ The setqflist() and setloclist() functions can be used to set the various
 attributes of a quickfix and location list respectively. Some examples for
 using these functions are below:
 >
+    " create an empty quickfix list with a title and a context
+    :let t = 'Search results'
+    :let c = {'cmd' : 'grep'}
+    :call setqflist([], ' ', {'title' : t, 'context' : c})
+
     " set the title of the current quickfix list
     :call setqflist([], 'a', {'title' : 'Mytitle'})
 
@@ -670,6 +685,9 @@ using these functions are below:
     :let newItems = [{'filename' : 'a.txt', 'lnum' : 10, 'text' : "Apple"},
 		    \ {'filename' : 'b.txt', 'lnum' : 20, 'text' : "Orange"}]
     :call setqflist([], 'a', {'id' : qfid, 'items' : newItems})
+
+    " empty a quickfix list specified by an identifier
+    :call setqflist([], 'r', {'id' : qfid, 'items' : []})
 
     " free all the quickfix lists in the stack
     :call setqflist([], 'f')
@@ -1273,7 +1291,7 @@ to the file.
 Changing directory
 
 The following uppercase conversion characters specify the type of special
-format strings.  At most one of them may be given as a prefix at the begin
+format strings.  At most one of them may be given as a prefix at the beginning
 of a single comma-separated format pattern.
 Some compilers produce messages that consist of directory names that have to
 be prepended to each file name read by %f (example: GNU make).  The following

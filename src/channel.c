@@ -2835,7 +2835,7 @@ channel_part_info(channel_T *channel, dict_T *dict, char *name, ch_part_T part)
 	status = "buffered";
     else
 	status = "closed";
-    dict_add_nr_str(dict, namebuf, 0, (char_u *)status);
+    dict_add_string(dict, namebuf, (char_u *)status);
 
     STRCPY(namebuf + tail, "mode");
     switch (chanpart->ch_mode)
@@ -2845,7 +2845,7 @@ channel_part_info(channel_T *channel, dict_T *dict, char *name, ch_part_T part)
 	case MODE_JSON: s = "JSON"; break;
 	case MODE_JS: s = "JS"; break;
     }
-    dict_add_nr_str(dict, namebuf, 0, (char_u *)s);
+    dict_add_string(dict, namebuf, (char_u *)s);
 
     STRCPY(namebuf + tail, "io");
     if (part == PART_SOCK)
@@ -2858,22 +2858,22 @@ channel_part_info(channel_T *channel, dict_T *dict, char *name, ch_part_T part)
 	case JIO_BUFFER: s = "buffer"; break;
 	case JIO_OUT: s = "out"; break;
     }
-    dict_add_nr_str(dict, namebuf, 0, (char_u *)s);
+    dict_add_string(dict, namebuf, (char_u *)s);
 
     STRCPY(namebuf + tail, "timeout");
-    dict_add_nr_str(dict, namebuf, chanpart->ch_timeout, NULL);
+    dict_add_number(dict, namebuf, chanpart->ch_timeout);
 }
 
     void
 channel_info(channel_T *channel, dict_T *dict)
 {
-    dict_add_nr_str(dict, "id", channel->ch_id, NULL);
-    dict_add_nr_str(dict, "status", 0, (char_u *)channel_status(channel, -1));
+    dict_add_number(dict, "id", channel->ch_id);
+    dict_add_string(dict, "status", (char_u *)channel_status(channel, -1));
 
     if (channel->ch_hostname != NULL)
     {
-	dict_add_nr_str(dict, "hostname", 0, (char_u *)channel->ch_hostname);
-	dict_add_nr_str(dict, "port", channel->ch_port, NULL);
+	dict_add_string(dict, "hostname", (char_u *)channel->ch_hostname);
+	dict_add_number(dict, "port", channel->ch_port);
 	channel_part_info(channel, dict, "sock", PART_SOCK);
     }
     else
@@ -5186,7 +5186,10 @@ job_any_running()
 
     for (job = first_job; job != NULL; job = job->jv_next)
 	if (job_still_useful(job))
+	{
+	    ch_log(NULL, "GUI not forking because a job is running");
 	    return TRUE;
+	}
     return FALSE;
 }
 #endif
@@ -5564,7 +5567,11 @@ job_check_ended(void)
  * Returns NULL when out of memory.
  */
     job_T *
-job_start(typval_T *argvars, char **argv_arg, jobopt_T *opt_arg)
+job_start(
+	typval_T    *argvars,
+	char	    **argv_arg,
+	jobopt_T    *opt_arg,
+	int	    is_terminal UNUSED)
 {
     job_T	*job;
     char_u	*cmd = NULL;
@@ -5658,7 +5665,7 @@ job_start(typval_T *argvars, char **argv_arg, jobopt_T *opt_arg)
 	/* Make a copy of argv_arg for job->jv_argv. */
 	for (i = 0; argv_arg[i] != NULL; i++)
 	    argc++;
-	argv = (char **)alloc(sizeof(char_u *) * (argc + 1));
+	argv = (char **)alloc(sizeof(char *) * (argc + 1));
 	if (argv == NULL)
 	    goto theend;
 	for (i = 0; i < argc; i++)
@@ -5701,7 +5708,7 @@ job_start(typval_T *argvars, char **argv_arg, jobopt_T *opt_arg)
     }
 
     /* Save the command used to start the job. */
-    job->jv_argv = (char_u **)argv;
+    job->jv_argv = argv;
 
 #ifdef USE_ARGV
     if (ch_log_active())
@@ -5718,7 +5725,7 @@ job_start(typval_T *argvars, char **argv_arg, jobopt_T *opt_arg)
 	ch_log(NULL, "Starting job: %s", (char *)ga.ga_data);
 	ga_clear(&ga);
     }
-    mch_job_start(argv, job, &opt);
+    mch_job_start(argv, job, &opt, is_terminal);
 #else
     ch_log(NULL, "Starting job: %s", (char *)cmd);
     mch_job_start((char *)cmd, job, &opt);
@@ -5732,7 +5739,7 @@ theend:
 #ifndef USE_ARGV
     vim_free(ga.ga_data);
 #endif
-    if ((char_u **)argv != job->jv_argv)
+    if (argv != job->jv_argv)
 	vim_free(argv);
     free_job_options(&opt);
     return job;
@@ -5772,12 +5779,11 @@ job_info(job_T *job, dict_T *dict)
     list_T	*l;
     int		i;
 
-    dict_add_nr_str(dict, "status", 0L, (char_u *)job_status(job));
+    dict_add_string(dict, "status", (char_u *)job_status(job));
 
     item = dictitem_alloc((char_u *)"channel");
     if (item == NULL)
 	return;
-    item->di_tv.v_lock = 0;
     item->di_tv.v_type = VAR_CHANNEL;
     item->di_tv.vval.v_channel = job->jv_channel;
     if (job->jv_channel != NULL)
@@ -5790,15 +5796,13 @@ job_info(job_T *job, dict_T *dict)
 #else
     nr = job->jv_proc_info.dwProcessId;
 #endif
-    dict_add_nr_str(dict, "process", nr, NULL);
-    dict_add_nr_str(dict, "tty_in", 0L,
-		   job->jv_tty_in != NULL ? job->jv_tty_in : (char_u *)"");
-    dict_add_nr_str(dict, "tty_out", 0L,
-		   job->jv_tty_out != NULL ? job->jv_tty_out : (char_u *)"");
+    dict_add_number(dict, "process", nr);
+    dict_add_string(dict, "tty_in", job->jv_tty_in);
+    dict_add_string(dict, "tty_out", job->jv_tty_out);
 
-    dict_add_nr_str(dict, "exitval", job->jv_exitval, NULL);
-    dict_add_nr_str(dict, "exit_cb", 0L, job->jv_exit_cb);
-    dict_add_nr_str(dict, "stoponexit", 0L, job->jv_stoponexit);
+    dict_add_number(dict, "exitval", job->jv_exitval);
+    dict_add_string(dict, "exit_cb", job->jv_exit_cb);
+    dict_add_string(dict, "stoponexit", job->jv_stoponexit);
 
     l = list_alloc();
     if (l != NULL)
@@ -5806,7 +5810,7 @@ job_info(job_T *job, dict_T *dict)
 	dict_add_list(dict, "cmd", l);
 	if (job->jv_argv != NULL)
 	    for (i = 0; job->jv_argv[i] != NULL; i++)
-		list_append_string(l, job->jv_argv[i], -1);
+		list_append_string(l, (char_u *)job->jv_argv[i], -1);
     }
 }
 
@@ -5873,6 +5877,64 @@ job_stop(job_T *job, typval_T *argvars, char *type)
     /* We don't try freeing the job, obviously the caller still has a
      * reference to it. */
     return 1;
+}
+
+    void
+invoke_prompt_callback(void)
+{
+    typval_T	rettv;
+    int		dummy;
+    typval_T	argv[2];
+    char_u	*text;
+    char_u	*prompt;
+    linenr_T	lnum = curbuf->b_ml.ml_line_count;
+
+    // Add a new line for the prompt before invoking the callback, so that
+    // text can always be inserted above the last line.
+    ml_append(lnum, (char_u  *)"", 0, FALSE);
+    curwin->w_cursor.lnum = lnum + 1;
+    curwin->w_cursor.col = 0;
+
+    if (curbuf->b_prompt_callback == NULL || *curbuf->b_prompt_callback == NUL)
+	return;
+    text = ml_get(lnum);
+    prompt = prompt_text();
+    if (STRLEN(text) >= STRLEN(prompt))
+	text += STRLEN(prompt);
+    argv[0].v_type = VAR_STRING;
+    argv[0].vval.v_string = vim_strsave(text);
+    argv[1].v_type = VAR_UNKNOWN;
+
+    call_func(curbuf->b_prompt_callback,
+	      (int)STRLEN(curbuf->b_prompt_callback),
+	      &rettv, 1, argv, NULL, 0L, 0L, &dummy, TRUE,
+	      curbuf->b_prompt_partial, NULL);
+    clear_tv(&argv[0]);
+    clear_tv(&rettv);
+}
+
+/*
+ * Return TRUE when the interrupt callback was invoked.
+ */
+    int
+invoke_prompt_interrupt(void)
+{
+    typval_T	rettv;
+    int		dummy;
+    typval_T	argv[1];
+
+    if (curbuf->b_prompt_interrupt == NULL
+					|| *curbuf->b_prompt_interrupt == NUL)
+	return FALSE;
+    argv[0].v_type = VAR_UNKNOWN;
+
+    got_int = FALSE; // don't skip executing commands
+    call_func(curbuf->b_prompt_interrupt,
+	      (int)STRLEN(curbuf->b_prompt_interrupt),
+	      &rettv, 0, argv, NULL, 0L, 0L, &dummy, TRUE,
+	      curbuf->b_prompt_int_partial, NULL);
+    clear_tv(&rettv);
+    return TRUE;
 }
 
 # ifdef FEAT_GUI_MACVIM

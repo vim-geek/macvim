@@ -799,6 +799,13 @@ gui_mch_add_menu_item(vimmenu_T *menu, int idx)
         // then a warning icon will be displayed).
         if (!icon)
             icon = lookup_toolbar_item(menu->iconidx);
+
+        // Last step is to see if this is a standard Apple template icon. The
+        // touch bar templates are of the form "NSTouchBar*Template".
+        if (!icon)
+            if (menu->iconfile && STRNCMP(menu->iconfile, "NSTouchBar", 10) == 0) {
+                icon = menu->iconfile;
+            }
     }
 
     [[MMBackend sharedInstance] queueMessage:AddMenuItemMsgID properties:
@@ -1729,18 +1736,6 @@ gui_mch_set_shellsize(
                "base_height=%d direction=%d", width, height, min_width,
                min_height, base_width, base_height, direction);
     [[MMBackend sharedInstance] setRows:height columns:width];
-}
-
-
-/*
- * Re-calculates size of the Vim view to fit within the window without having
- * to resize the window. Usually happens after UI elements have changed (e.g.
- * adding / removing a toolbar) when guioptions 'k' is set.
- */
-    void
-gui_mch_resize_view()
-{
-    [[MMBackend sharedInstance] resizeView];
 }
 
 

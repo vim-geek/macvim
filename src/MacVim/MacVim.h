@@ -176,10 +176,8 @@ enum {
     SetTextRowsMsgID,
     SetTextColumnsMsgID,
     SetTextDimensionsMsgID,
-    SetTextDimensionsNoResizeWindowMsgID,
     LiveResizeMsgID,
     SetTextDimensionsReplyMsgID,
-    ResizeViewMsgID,
     SetWindowTitleMsgID,
     ScrollWheelMsgID,
     MouseDownMsgID,
@@ -296,6 +294,7 @@ enum {
     MMGestureSwipeRight,
     MMGestureSwipeUp,
     MMGestureSwipeDown,
+    MMGestureForceClick,
 };
 
 
